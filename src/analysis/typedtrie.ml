@@ -57,7 +57,7 @@ module Trie = struct
   let get k t =
     match k with
     | Id k -> Ident.find_same k t
-    | String s -> snd (Ident.find_name s t)
+    | String s -> snd (Ident.find_name s t) (* FIXME: find_name returns a pair only since 4.06 *)
 
   exception Found of Ident.t * Location.t * string option * namespace * node
 

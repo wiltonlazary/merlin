@@ -280,23 +280,16 @@ module Utils = struct
       in
       let rec attempt_search synonyms =
         match synonyms with
-        | [] -> raise Not_found
-        | [synonym_pair] ->
-          (* Upon trying the final [synonym_pair], search failure should raise *)
+        | [] -> raise (File.Not_found file)
+        | synonym_pair :: other_synonym_pairs ->
           let fallback = synonym_extension fallback synonym_pair in
           let fname = synonym_extension fname synonym_pair in
-          (
-            try Misc.find_in_path_uncap ~fallback path fname with
-              Not_found -> raise (File.Not_found file)
-          )
-        | synonym_pair :: ((rest1 :: rest2) as rest_synonyms) ->
-          (* If cannot find match, continue searching through [rest_synonyms] *)
-          let fallback = synonym_extension fallback synonym_pair in
-          let fname = synonym_extension fname synonym_pair in
-          (
-            try Misc.find_in_path_uncap ~fallback path fname with
-              Not_found -> attempt_search rest_synonyms
-          )
+          try
+            Misc.find_in_path_uncap ~fallback path fname
+          with Not_found ->
+            (* If cannot find match, continue searching through the pairs of
+               synonyms. *)
+            attempt_search other_synonym_pairs
       in
       attempt_search Mconfig.(config.merlin.suffixes)
 

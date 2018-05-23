@@ -417,7 +417,7 @@ and browse_cmts ~config ~root path_opt =
       "erased" loadpath, it could mean that we are looking for a persistent
       unit, and that's why we restore the initial loadpath. *)
 and from_path ~config path =
-  log "from_path '%s'" (Typedtrie.path_to_string path) ;
+  log "from_path" (Typedtrie.path_to_string path) ;
   match path with
   | TPident (fname, `Mod) ->
     let save_digest_and_return root =
@@ -532,8 +532,7 @@ let find_source ~config loc =
   | [ x ] -> Some x
   | files ->
     logf (sprintf "find_source(%s)" filename)
-      "multiple matches in the source path (%s) : %s"
-      (String.concat ~sep:", " @@ Mconfig.source_path config)
+      "multiple matches in the source path : %s"
       (String.concat ~sep:" , " files);
     try
       match File_switching.source_digest () with

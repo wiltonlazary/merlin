@@ -447,7 +447,7 @@ let rec follow ?before trie path =
            might only make sense for a few steps, but in the upper nodes it
            might need to be prefixed.
            We need to recurse like we do for [Resolves_to] *)
-        Alias_of (loc, path)
+        Alias_of (loc, new_prefix)
       | _ ->
         let new_path = rewrite_path ~new_prefix path in
         begin match follow ~before:loc.Location.loc_start trie new_path with

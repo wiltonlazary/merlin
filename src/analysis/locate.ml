@@ -207,7 +207,7 @@ end
 module File_switching : sig
   val reset : unit -> unit
 
-  val move_to : ?digest:Digest.t -> string -> unit (* raises Can't_move *)
+  val move_to : ?digest:Digest.t -> string -> unit
 
   val where_am_i : unit -> string option
 

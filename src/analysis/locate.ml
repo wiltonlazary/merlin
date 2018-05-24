@@ -108,8 +108,7 @@ end = struct
     | CMTI of string
 
   let file_path_to_mod_name f =
-    let pref = Misc.chop_extensions f in
-    String.capitalize (Filename.basename pref)
+    Misc.unitname (Filename.basename f)
 
   let ml   s = ML   (file_path_to_mod_name s)
   let mli  s = MLI  (file_path_to_mod_name s)
@@ -291,8 +290,7 @@ module Utils = struct
     List.uniq files ~cmp:String.compare
 
   let find_file_with_path ~config ?(with_fallback=false) file path =
-    let fname = File.with_ext file in
-    if Misc.unitname fname = Misc.unitname Mconfig.(config.query.filename) then
+    if File.name file = Misc.unitname Mconfig.(config.query.filename) then
       Mconfig.(config.query.filename)
     else
       let rec attempt_search src_suffix_pair =

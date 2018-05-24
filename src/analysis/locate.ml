@@ -87,6 +87,8 @@ module File : sig
   val cmt : string -> t
   val cmti : string -> t
 
+  val of_filename : string -> t option
+
   (* FIXME: don't export this *)
   exception Not_found of t
 
@@ -105,10 +107,27 @@ end = struct
     | CMT  of string
     | CMTI of string
 
-  let ml   s = ML   (Misc.chop_extension_if_any s)
-  let mli  s = MLI  (Misc.chop_extension_if_any s)
-  let cmt  s = CMT  (Misc.chop_extension_if_any s)
-  let cmti s = CMTI (Misc.chop_extension_if_any s)
+  let file_path_to_mod_name f =
+    let pref = Misc.chop_extensions f in
+    String.capitalize (Filename.basename pref)
+
+  let ml   s = ML   (file_path_to_mod_name s)
+  let mli  s = MLI  (file_path_to_mod_name s)
+  let cmt  s = CMT  (file_path_to_mod_name s)
+  let cmti s = CMTI (file_path_to_mod_name s)
+
+  let of_filename fn =
+    match String.split_on_char fn ~sep:'.' with
+    | []
+    | [ _ ] -> None
+    | lst ->
+      let ext = String.lowercase_ascii (Option.get @@ List.last lst) in
+      Some (
+        match ext with
+        | "cmti" -> cmti fn
+        | "cmt"  -> cmt fn
+        | _ -> if Filename.check_suffix ext "i" then mli fn else ml fn
+      )
 
   let alternate = function
     | ML s  -> MLI s
@@ -122,13 +141,14 @@ end = struct
     | CMT name
     | CMTI name -> name
 
-  let ext ?(src_suffix_pair=(".ml",".mli")) = function
+  let ext src_suffix_pair = function
     | ML _  -> fst src_suffix_pair
     | MLI _  -> snd src_suffix_pair
     | CMT _ -> ".cmt"
     | CMTI _ -> ".cmti"
 
-  let with_ext ?src_suffix_pair t = name t ^ ext t
+  let with_ext ?(src_suffix_pair=(".ml",".mli")) t =
+    name t ^ ext src_suffix_pair t
 
   exception Not_found of t
 
@@ -170,18 +190,14 @@ end = struct
       | `ML -> true
       | _ -> false
 
-  open File
-
   let src   file = if !prioritize_impl then File.ml  file else File.mli  file
   let build file = if !prioritize_impl then File.cmt file else File.cmti file
 
-  let is_preferred filename =
-    if !prioritize_impl then
-      Filename.check_suffix filename "ml" ||
-      Filename.check_suffix filename "ML"
-    else
-      Filename.check_suffix filename "mli" ||
-      Filename.check_suffix filename "MLI"
+  let is_preferred fn =
+    match File.of_filename fn with
+    | Some ML _ -> !prioritize_impl
+    | Some MLI _ -> not !prioritize_impl
+    | _ -> false
 end
 
 module File_switching : sig
@@ -228,10 +244,6 @@ module Utils = struct
   let longident_is_qualified = function
     | Longident.Lident _ -> false
     | _ -> true
-
-  let file_path_to_mod_name f =
-    let pref = Misc.chop_extensions f in
-    String.capitalize (Filename.basename pref)
 
   (* Reuse the code of [Misc.find_in_path_uncap] but returns all the files
      matching, instead of the first one.
@@ -387,7 +399,10 @@ and browse_cmts ~config ~root path_opt =
         | id, `Mod ->
           assert (
             List.exists files ~f:(fun s ->
-              Utils.file_path_to_mod_name s = Typedtrie.idname id
+              match File.of_filename s with
+              | None ->
+                false (* no extension? perhaps we should even assert false. *)
+              | Some f -> File.name f = Typedtrie.idname id
             )
           );
           log "loadpath" "Saw packed module => erasing loadpath" ;
@@ -494,11 +509,11 @@ exception Multiple_matches of string list
 let find_source ~config loc =
   let fname = loc.Location.loc_start.Lexing.pos_fname in
   let with_fallback = loc.Location.loc_ghost in
-  let mod_name = Utils.file_path_to_mod_name fname in
   let file =
-    let extensionless = Misc.chop_extension_if_any fname = fname in
-    if extensionless then Preferences.src mod_name else
-    if Filename.check_suffix fname "i" then File.mli mod_name else File.ml mod_name
+    match File.of_filename fname with
+    | Some file -> file
+    | None -> (* no extension? we have to decide. *)
+      Preferences.src fname
   in
   let filename = File.name file in
   let initial_path =

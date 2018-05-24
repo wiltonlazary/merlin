@@ -78,6 +78,7 @@ end
 module File : sig
   type t = private
     | ML   of string
+    | MLL  of string
     | MLI  of string
     | CMT  of string
     | CMTI of string
@@ -103,6 +104,7 @@ module File : sig
 end = struct
   type t =
     | ML   of string
+    | MLL  of string
     | MLI  of string
     | CMT  of string
     | CMTI of string
@@ -111,6 +113,7 @@ end = struct
     Misc.unitname (Filename.basename f)
 
   let ml   s = ML   (file_path_to_mod_name s)
+  let mll  s = MLL  (file_path_to_mod_name s)
   let mli  s = MLI  (file_path_to_mod_name s)
   let cmt  s = CMT  (file_path_to_mod_name s)
   let cmti s = CMTI (file_path_to_mod_name s)
@@ -125,17 +128,20 @@ end = struct
         match ext with
         | "cmti" -> cmti fn
         | "cmt"  -> cmt fn
+        | "mll"  -> mll fn
         | _ -> if Filename.check_suffix ext "i" then mli fn else ml fn
       )
 
   let alternate = function
-    | ML s  -> MLI s
+    | ML  s
+    | MLL s -> MLI s
     | MLI s -> ML s
     | CMT s  -> CMTI s
     | CMTI s -> CMT s
 
   let name = function
     | ML name
+    | MLL name
     | MLI name
     | CMT name
     | CMTI name -> name
@@ -143,6 +149,7 @@ end = struct
   let ext src_suffix_pair = function
     | ML _  -> fst src_suffix_pair
     | MLI _  -> snd src_suffix_pair
+    | MLL _ -> ".mll"
     | CMT _ -> ".cmt"
     | CMTI _ -> ".cmti"
 
@@ -156,6 +163,9 @@ end = struct
       match path with
       | ML file ->
         sprintf "'%s' seems to originate from '%s' whose ML file could not be \
+                 found" str_ident file
+      | MLL file ->
+        sprintf "'%s' seems to originate from '%s' whose MLL file could not be \
                  found" str_ident file
       | MLI file ->
         sprintf "'%s' seems to originate from '%s' whose MLI file could not be \
@@ -303,11 +313,11 @@ module Utils = struct
       with Not_found ->
         raise (File.Not_found file)
 
-  let find_file ~config ?with_fallback file =
+  let find_file ~config ?with_fallback (file : File.t) =
     find_file_with_path ~config ?with_fallback file @@
         match file with
-        | File.ML  _ | File.MLI _  -> Mconfig.source_path config
-        | File.CMT _ | File.CMTI _ -> !loadpath
+        | ML  _ | MLI _  | MLL _ -> Mconfig.source_path config
+        | CMT _ | CMTI _         -> !loadpath
 end
 
 module Context = struct

@@ -30,8 +30,14 @@ open Std
 open Browse_tree
 open Browse_raw
 
-type t = (Location.t * string option * Namespaced_path.Namespace.t * node) list Ident.tbl
- and node =
+type t = elt list Ident.tbl
+and elt = {
+  loc : Location.t;
+  doc : string option;
+  namespace : Namespaced_path.Namespace.t;
+  node : node;
+}
+and node =
    | Leaf
    | Internal of t
    | Included of Namespaced_path.t
@@ -65,19 +71,19 @@ module Trie = struct
     | Id k -> Ident.find_same k t
     | String s -> snd (Ident.find_name s t) (* FIXME: find_name returns a pair only since 4.06 *)
 
-  exception Found of Ident.t * Location.t * string option * Namespaced_path.Namespace.t * node
+  exception Found of Ident.t * elt
 
-  let find f t =
+  let find f (t : t) =
     try
       iter (fun key data ->
-        List.iter data ~f:(fun (l, doc, ns, node) ->
-          if f key l doc ns node then
-            raise (Found (key, l, doc, ns, node))
+        List.iter data ~f:(fun data ->
+          if f key data then
+            raise (Found (key, data))
         )
       ) t;
       raise Not_found
     with
-    | Found (k, l, d, n, v) -> (k, l, d, n, v)
+    | Found (key, data) -> key, data
 
   let find_some f t =
     try Some (find f t)
@@ -183,7 +189,7 @@ let rec build ?(local_buffer=false) ~trie browses =
     | `Mod_expr me -> node_for_direct_mod `Mod (remove_indir_me me)
     | `Mod_type mty -> node_for_direct_mod `Modtype (remove_indir_mty mty)
     | `Functor (id, floc, pack_loc, packed) when local_buffer ->
-      let arg_node = [ floc, None, namespace, Leaf ] in
+      let arg_node = [{ loc = floc; doc = None; namespace; node = Leaf }] in
       let trie =
         begin match node_for_direct_mod `Mod packed with
         | Internal t ->
@@ -197,8 +203,14 @@ let rec build ?(local_buffer=false) ~trie browses =
       let node2 = node_for_direct_mod `Mod (remove_indir_me me2) in
       let trie  =
         Trie.of_list [
-          Ident.create "1", [ me1.Typedtree.mod_loc, None, `Mod, node1 ];
-          Ident.create "2", [ me2.Typedtree.mod_loc, None, `Mod, node2 ];
+          Ident.create "1", [
+            { loc = me1.Typedtree.mod_loc; doc = None; namespace = `Mod
+            ; node = node1 }
+          ];
+          Ident.create "2", [
+            { loc = me2.Typedtree.mod_loc; doc = None; namespace = `Mod
+            ; node = node2 }
+          ];
         ]
       in
       Internal trie
@@ -227,7 +239,7 @@ let rec build ?(local_buffer=false) ~trie browses =
             (remove_indir_me mb.Typedtree.mb_expr)
         in
         Trie.add_multiple mb.Typedtree.mb_id
-          (t.t_loc, doc, `Mod, node) trie
+          {loc = t.t_loc; doc; namespace = `Mod; node} trie
       (* Ignore patterns. *)
       | _ -> trie
     in
@@ -256,10 +268,10 @@ let rec build ?(local_buffer=false) ~trie browses =
       | `Not_included -> build ~local_buffer ~trie (Lazy.force t.t_children)
       | `Included (included_idents, packed) ->
         let rec helper packed =
-          let f data =
+          let f node =
             List.fold_left included_idents ~init:trie ~f:(fun trie (id, ns) ->
-              let data = (t.t_loc, None, ns, data) in
-              Trie.add_multiple id data trie
+              let node = { loc = t.t_loc; doc = None; namespace = ns; node } in
+              Trie.add_multiple id node trie
             )
           in
           match
@@ -299,39 +311,46 @@ let rec build ?(local_buffer=false) ~trie browses =
         List.fold_left idlocs ~init:trie ~f:(fun trie (id, loc) ->
           if local_buffer then
             let children = collect_local_modules Trie.empty t.t_children in
-            if Trie.is_empty children then
-              Trie.add_multiple id (t.t_loc, doc, `Vals, Leaf) trie
-            else
-              Trie.add_multiple id (t.t_loc, doc, `Vals, Internal children) trie
+            let node =
+              if Trie.is_empty children
+              then Leaf
+              else Internal children
+            in
+            let elt = { loc = t.t_loc; doc; namespace = `Vals; node } in
+            Trie.add_multiple id elt trie
           else
-            Trie.add_multiple id (loc, doc, `Vals, Leaf) trie
+            let elt = { loc = loc; doc; namespace = `Vals; node = Leaf } in
+            Trie.add_multiple id elt trie
         )
       end
     | Value_description vd ->
-      Trie.add_multiple vd.val_id (t.t_loc, doc, `Vals, Leaf) trie
+      Trie.add_multiple vd.val_id
+        { loc = t.t_loc; doc; namespace = `Vals; node = Leaf } trie
     | Module_binding mb ->
       let node =
         node_for_direct_mod `Mod
           (remove_indir_me mb.mb_expr)
       in
-      Trie.add_multiple mb.mb_id (t.t_loc, doc, `Mod, node) trie
+      Trie.add_multiple mb.mb_id { loc=t.t_loc; doc; namespace=`Mod; node } trie
     | Module_declaration md ->
       let node =
         node_for_direct_mod `Mod
           (remove_indir_mty md.md_type)
       in
-      Trie.add_multiple md.md_id (t.t_loc, doc, `Mod, node) trie
+      Trie.add_multiple md.md_id { loc=t.t_loc; doc; namespace=`Mod; node } trie
     | Module_type_declaration mtd ->
       let node =
         match mtd.mtd_type with
          None -> Leaf
         | Some m -> node_for_direct_mod `Modtype (remove_indir_mty m)
       in
-      Trie.add_multiple mtd.mtd_id (t.t_loc, doc, `Modtype, node) trie
+      Trie.add_multiple mtd.mtd_id
+        { loc=t.t_loc; doc; namespace=`Modtype; node } trie
     | Type_declaration td ->
       (* TODO: add constructors and labels as well.
          Because why the hell not. *)
-      Trie.add_multiple td.typ_id (t.t_loc, doc, `Type, Leaf) trie
+      Trie.add_multiple td.typ_id
+        { loc = t.t_loc; doc; namespace = `Type; node = Leaf } trie
     | Type_extension _ ->
       (* TODO: add constructors and labels as well.
          Because why the hell not. *)
@@ -351,28 +370,28 @@ let rec follow ?before trie path =
   try
     let lst = Trie.get x trie in
     let lst =
-      List.filter lst ~f:(fun (_, _, ns, _) -> ns = namespace || ns = `Unknown)
+      List.filter lst ~f:(fun { namespace = ns } -> ns = namespace || ns = `Unknown)
     in
     let lst =
       match before with
       | None -> lst
       | Some before ->
-        List.filter lst ~f:(fun (l1, _, _, _) ->
-          Lexing.compare_pos l1.Location.loc_start before < 0)
+        List.filter lst ~f:(fun { loc } ->
+          Lexing.compare_pos loc.Location.loc_start before < 0)
     in
     match
-      List.sort lst ~cmp:(fun (l1, _, _, _) (l2, _, _, _) ->
+      List.sort lst ~cmp:(fun { loc = l1 } { loc = l2 } ->
         (* We wants the ones closed last to be at the beginning of the list. *)
         Lexing.compare_pos l2.Location.loc_end l1.Location.loc_end)
     with
     | [] -> Resolves_to (path, None)
-    | (loc, doc, _, Leaf) :: _ ->
+    | {loc; doc; node = Leaf} :: _ ->
       (* we're not checking whether [xs = []] here, as we wouldn't be able to
          lookup anything else which would be correct I think.
          [xs] can be non-nil in this case when [x] is a first class module.
          ... and perhaps in other situations I am not aware of.  *)
       Found (loc, doc)
-    | (loc, _, _, Alias new_prefix) :: _ ->
+    | {loc; node = Alias new_prefix} :: _ ->
       begin match Namespaced_path.peal_head path with
       | None ->
         (* FIXME: at this point, we might be deep in the trie, and [path]
@@ -387,13 +406,13 @@ let rec follow ?before trie path =
         | otherwise -> otherwise
         end
       end
-    | (loc, _, _, Included new_prefix) :: _ ->
+    | { loc; node = Included new_prefix} :: _ ->
       let new_path = Namespaced_path.rewrite_path ~new_prefix path in
       begin match follow ~before:loc.Location.loc_start trie new_path with
       | Resolves_to (p, None) -> Resolves_to (p, Some loc)
       | otherwise -> otherwise
       end
-    | (l, doc, _, Internal t) :: _ ->
+    | { loc = l; doc; node = Internal t } :: _ ->
       begin match path with
       | TPident _ -> Found (l, doc)
       | _ ->
@@ -412,17 +431,14 @@ let rec follow ?before trie path =
   | Not_found ->
     Resolves_to (path, None)
 
-let dump_namespace fmt ns =
-  Format.pp_print_string fmt (Namespaced_path.Namespace.to_string ns)
-
 let rec find ~before trie path =
   match
-    Trie.find_some (fun _name loc _docopt _namespace _node ->
+    Trie.find_some (fun _name { loc; _ } ->
       Lexing.compare_pos loc.Location.loc_start before < 0
       && Lexing.compare_pos loc.Location.loc_end before > 0
     ) trie
   with
-  | Some (_name, loc, _docopt, _namespace, Internal subtrie) ->
+  | Some (_name, { loc; node = Internal subtrie }) ->
     begin match find ~before subtrie path with
     | Resolves_to (p, x) as checkpoint ->
       begin match follow ~before:loc.Location.loc_start trie p with
@@ -431,7 +447,7 @@ let rec find ~before trie path =
       end
     | otherwise -> otherwise
     end
-  | Some (name, loc, _docopt, _namespace, _) ->
+  | Some (name, { loc }) ->
     Logger.log "locate" "Typedtrie.find"
       "cursor is in a leaf, so we look only before the leaf" ;
     follow ~before:loc.Location.loc_start trie path
@@ -443,8 +459,8 @@ let find ?before trie path =
   | Some before -> find ~before trie path
 
 let rec dump fmt trie =
-  let dump_node (loc, _doc_opt, namespace, node) =
-    dump_namespace fmt namespace;
+  let dump_node {loc; namespace; node} =
+    Format.pp_print_string fmt (Namespaced_path.Namespace.to_string namespace);
     match node with
     | Leaf -> Location.print_loc fmt loc
     | Included path ->

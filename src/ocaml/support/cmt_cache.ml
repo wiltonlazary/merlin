@@ -28,34 +28,12 @@
 
 open Std
 
-type namespace = [
-  | `Vals
-  | `Type
-  | `Constr
-  | `Mod
-  | `Modtype
-  | `Functor
-  | `Labels
-  | `Unknown
-  | `Apply
-]
-
-type maybe_ident =
-  | Id of Ident.t
-  | String of string
-
-type tagged_path =
-  | TPident of maybe_ident * namespace
-  | TPdot of tagged_path * string * namespace
-  | TPapply of tagged_path * tagged_path
-(* type path = (string * namespace) list *)
-
-type trie = (Location.t * string option * namespace * node) list Ident.tbl
+type trie = (Location.t * string option * Namespaced_path.Namespace.t * node) list Ident.tbl
  and node =
    | Leaf
    | Internal of trie
-   | Included of tagged_path
-   | Alias    of tagged_path
+   | Included of Namespaced_path.t
+   | Alias    of Namespaced_path.t
 
 
 type cmt_item = {

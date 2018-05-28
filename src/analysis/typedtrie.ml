@@ -54,12 +54,12 @@ module Trie = struct
 
   let iter f t = Ident.iter f t
 
-  let get k t =
+  let get (k : Namespaced_path.Ident.t) t =
     match k with
     | Id k -> Ident.find_same k t
     | String s -> snd (Ident.find_name s t) (* FIXME: find_name returns a pair only since 4.06 *)
 
-  exception Found of Ident.t * Location.t * string option * namespace * node
+  exception Found of Ident.t * Location.t * string option * Namespaced_path.Namespace.t * node
 
   let find f t =
     try
@@ -78,28 +78,6 @@ module Trie = struct
     with Not_found -> None
 end
 
-let idname = function
-  | Id id -> Ident.name id
-  | String s -> s
-
-let path_to_string (p : tagged_path) =
-  let ns_to_string = function
-    | `Mod -> ""
-    | `Functor -> "[functor]"
-    | `Labels -> "[label]"
-    | `Constr -> "[cstr]"
-    | `Type -> "[type]"
-    | `Vals -> "[val]"
-    | `Modtype -> "[Mty]"
-    | `Unknown -> "[?]"
-    | `Apply -> "[functor application]"
-  in
-  let rec name = function
-    | TPident (id, ns) -> idname id ^ ns_to_string ns
-    | TPdot (p, s, ns) -> name p ^ "." ^ s ^ ns_to_string ns
-    | TPapply (p1, p2) -> name p1 ^ "(" ^ name p2 ^ ")"
-  in
-  name p
 
 let extract_doc (attrs : Parsetree.attributes) =
   String.concat ~sep:"\n" (
@@ -113,8 +91,8 @@ type t = trie
 (* See mli for documentation. *)
 type result =
   | Found of Location.t * string option
-  | Alias_of of Location.t * tagged_path
-  | Resolves_to of tagged_path * Location.t option
+  | Alias_of of Location.t * Namespaced_path.t
+  | Resolves_to of Namespaced_path.t * Location.t option
 
 let rec remove_top_indir =
   List.concat_map ~f:(fun bt ->
@@ -190,23 +168,10 @@ let rec pattern_idlocs pat =
   | Tpat_variant (_, Some pat, _) -> pattern_idlocs pat
   | _ -> []
 
-let tag_path ~namespace =
-  let rec aux ns =
-    let open Path in
-    function
-    | Pident id -> TPident (Id id, ns)
-    | Pdot (p, str, _) ->
-      (* FIXME: not always `Mod *)
-      TPdot (aux `Mod p, str, ns)
-    | Papply (p1, p2) ->
-      TPapply (aux `Mod p1, aux `Mod p2)
-  in
-  aux namespace
-
 let rec build ?(local_buffer=false) ~trie browses =
   let rec node_for_direct_mod namespace = function
-    | `Alias path -> Alias (tag_path ~namespace path)
-    | `Ident path -> Alias (tag_path ~namespace:`Modtype path)
+    | `Alias path -> Alias (Namespaced_path.of_path ~namespace path)
+    | `Ident path -> Alias (Namespaced_path.of_path ~namespace:`Modtype path)
     | `Str s ->
       Internal (build ~local_buffer ~trie:Trie.empty [of_structure s])
     | `Sg s ->
@@ -304,10 +269,10 @@ let rec build ?(local_buffer=false) ~trie browses =
               | `Mod_expr _ -> `Mod
               | `Mod_type _ -> `Modtype
             in
-            let p = tag_path ~namespace path in
+            let p = Namespaced_path.of_path ~namespace path in
             f (Included p)
           | `Ident p ->
-            let p = tag_path ~namespace:`Modtype p in
+            let p = Namespaced_path.of_path ~namespace:`Modtype p in
             f (Included p)
           | `Mod_type _
           | `Mod_expr _ as packed -> helper packed
@@ -376,46 +341,9 @@ let rec build ?(local_buffer=false) ~trie browses =
 
 let of_browses = build ~trie:Trie.empty
 
-let rec path_head = function
-  | TPident (id, ns) -> id, ns
-  | TPdot(p, _, _) -> path_head p
-  | TPapply _ -> assert false
-
-let rec peal_head = function
-  | TPident _ -> assert false
-  | TPdot(TPident _, s, ns) -> TPident (String s, ns)
-  | TPdot(p, s, ns) -> TPdot(peal_head p, s, ns)
-  | TPapply (TPident _, _) -> assert false
-  | TPapply (p1, p2) -> TPapply (peal_head p1, p2)
-
-let path_equal p1 p2 =
-  let maybe_ident_equal mi1 mi2 =
-    match mi1, mi2 with
-    | Id i1, Id i2 -> Ident.equal i1 i2
-    | Id i, String s
-    | String s, Id i -> (Ident.name i) = s
-    | String s1, String s2 -> s1 = s2
-  in
-  let rec aux p1 p2 =
-    match p1, p2 with
-    | TPident (i1, ns1), TPident (i2, ns2) ->
-      maybe_ident_equal i1 i2 && ns1 = ns2
-    | TPdot(p1, s1, ns1), TPdot(p2, s2, ns2) ->
-      s1 = s2 && ns1 = ns2 && aux p1 p2
-    | TPapply(p11, p21), TPapply(p12, p22) ->
-      aux p11 p12 && aux p21 p22
-    | _, _ -> false
-  in
-  aux p1 p2
-
-let rec rewrite_path ~new_prefix = function
-  | TPident _ -> new_prefix
-  | TPdot(p, s, ns) -> TPdot (rewrite_path ~new_prefix p, s, ns)
-  | TPapply (p1, p2) -> TPapply (rewrite_path ~new_prefix p1, p2)
-
 
 let rec follow ?before trie path =
-  let (x, namespace) = path_head path in
+  let (x, namespace) = Namespaced_path.head path in
   try
     let lst = Trie.get x trie in
     let lst =
@@ -449,14 +377,14 @@ let rec follow ?before trie path =
            We need to recurse like we do for [Resolves_to] *)
         Alias_of (loc, new_prefix)
       | _ ->
-        let new_path = rewrite_path ~new_prefix path in
+        let new_path = Namespaced_path.rewrite_path ~new_prefix path in
         begin match follow ~before:loc.Location.loc_start trie new_path with
         | Resolves_to (p, None) -> Resolves_to (p, Some loc)
         | otherwise -> otherwise
         end
       end
     | (loc, _, _, Included new_prefix) :: _ ->
-      let new_path = rewrite_path ~new_prefix path in
+      let new_path = Namespaced_path.rewrite_path ~new_prefix path in
       begin match follow ~before:loc.Location.loc_start trie new_path with
       | Resolves_to (p, None) -> Resolves_to (p, Some loc)
       | otherwise -> otherwise
@@ -465,9 +393,9 @@ let rec follow ?before trie path =
       begin match path with
       | TPident _ -> Found (l, doc)
       | _ ->
-        let xs = peal_head path in
+        let xs = Namespaced_path.peal_head_exn path in
         match follow ?before t xs with
-        | Resolves_to (p, None) when path_equal p xs -> Found (l, doc) (* questionable *)
+        | Resolves_to (p, None) when Namespaced_path.equal p xs -> Found (l, doc) (* questionable *)
         | Resolves_to (p, x) as checkpoint ->
           begin match follow ~before:l.Location.loc_start trie p with
           (* This feels wrong *)
@@ -480,18 +408,8 @@ let rec follow ?before trie path =
   | Not_found ->
     Resolves_to (path, None)
 
-let dump_namespace fmt (namespace : namespace) =
-  Format.pp_print_string fmt
-    (match namespace with
-     | `Mod -> "(Mod) "
-     | `Functor -> "(functor)"
-     | `Labels -> "(lbl) "
-     | `Constr -> "(cstr) "
-     | `Type -> "(typ) "
-     | `Vals -> "(val) "
-     | `Modtype -> "(Mty) "
-     | `Unknown -> "(?)"
-     | `Apply -> "(functor application)")
+let dump_namespace fmt ns =
+  Format.pp_print_string fmt (Namespaced_path.Namespace.to_string ns)
 
 let rec find ~before trie path =
   match
@@ -527,10 +445,10 @@ let rec dump fmt trie =
     | Leaf -> Location.print_loc fmt loc
     | Included path ->
       Format.fprintf fmt "%a <%s>" Location.print_loc loc
-        (path_to_string path)
+        (Namespaced_path.to_string path)
     | Alias path ->
       Format.fprintf fmt "%a = %s" Location.print_loc loc
-        (path_to_string path)
+        (Namespaced_path.to_string path)
     | Internal t ->
       Format.fprintf fmt "%a = %a" Location.print_loc loc dump t
   in

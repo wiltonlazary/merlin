@@ -26,9 +26,12 @@
 
 )* }}} *)
 
-open Cmt_cache
-
-type t = trie
+type t = (Location.t * string option * Namespaced_path.Namespace.t * node) list Ident.tbl
+ and node =
+   | Leaf
+   | Internal of t
+   | Included of Namespaced_path.t
+   | Alias    of Namespaced_path.t
 
 val of_browses : ?local_buffer:bool -> Browse_tree.t list -> t
 (** Constructs a trie from a list of [BrowseT.t].

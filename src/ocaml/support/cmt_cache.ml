@@ -28,17 +28,10 @@
 
 open Std
 
-type trie = (Location.t * string option * Namespaced_path.Namespace.t * node) list Ident.tbl
- and node =
-   | Leaf
-   | Internal of trie
-   | Included of Namespaced_path.t
-   | Alias    of Namespaced_path.t
-
 
 type cmt_item = {
   cmt_infos : Cmt_format.cmt_infos ;
-  mutable location_trie : trie ;
+  mutable location_trie : Typedtrie.t ;
 }
 
 include File_cache.Make (struct

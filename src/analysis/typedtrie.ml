@@ -30,7 +30,13 @@ open Std
 open Browse_tree
 open Browse_raw
 
-open Cmt_cache
+type t = (Location.t * string option * Namespaced_path.Namespace.t * node) list Ident.tbl
+ and node =
+   | Leaf
+   | Internal of t
+   | Included of Namespaced_path.t
+   | Alias    of Namespaced_path.t
+
 module Trie = struct
   let empty = Ident.empty
 
@@ -85,8 +91,6 @@ let extract_doc (attrs : Parsetree.attributes) =
       Option.map ~f:fst (Type_utils.read_doc_attributes [attr])
     )
   )
-
-type t = trie
 
 (* See mli for documentation. *)
 type result =

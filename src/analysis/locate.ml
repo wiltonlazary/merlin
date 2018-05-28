@@ -347,11 +347,21 @@ let trie_of_cmt root =
   let open Cmt_format in
   let cached = Cmt_cache.read root in
   logf "browse_cmts" "inspecting %s" root ;
-  if cached.Cmt_cache.location_trie <> Ident.empty then (
-    log "browse_cmts" "trie already cached";
-    `Browsable (cached.cmt_infos.cmt_sourcefile, cached.location_trie)
-  ) else (
-    match
+  begin match cached.Cmt_cache.location_trie with
+  | Some _ -> log "browse_cmts" "trie already cached"
+  | None ->
+    let trie_of_nodes nodes =
+      let digest =
+        (* [None] only for packs. *)
+        Option.get cached.cmt_infos.cmt_source_digest
+      in
+      File_switching.move_to ~digest root;
+      let trie =
+        Some (Typedtrie.of_browses (List.map ~f:Browse_tree.of_node nodes))
+      in
+      cached.location_trie <- trie
+    in
+    Option.iter ~f:trie_of_nodes (
       match cached.Cmt_cache.cmt_infos.cmt_annots with
       | Packed (_, _)       -> None
       | Interface intf      -> Some [Browse_raw.Signature intf]
@@ -365,18 +375,9 @@ let trie_of_cmt root =
           |> List.map ~f:(Mbrowse.node_of_binary_part env)
         in
         Some nodes
-    with
-    | None -> `Pack cached.cmt_infos.cmt_loadpath
-    | Some nodes ->
-      let digest =
-        (* [None] only for packs *)
-        Option.get cached.cmt_infos.Cmt_format.cmt_source_digest
-      in
-      File_switching.move_to ~digest root;
-      let trie = Typedtrie.of_browses (List.map ~f:Browse_tree.of_node nodes) in
-      cached.Cmt_cache.location_trie <- trie;
-      `Browsable (cached.cmt_infos.cmt_sourcefile, trie)
-  )
+    )
+  end;
+  cached.cmt_infos, cached.location_trie
 
 type locate_result =
   | Found of Location.t * string option
@@ -411,17 +412,19 @@ and from_path ~config path : locate_result =
     let fname = Namespaced_path.Ident.name fname in
     let file = Preferences.build fname in
     let browse_cmt cmt_file =
-      match trie_of_cmt cmt_file, Namespaced_path.peal_head path with
-      | `Pack _, None ->
+      let cmt_infos, trie = trie_of_cmt cmt_file in
+      match trie, Namespaced_path.peal_head path with
+      | None, None ->
         Other_error (* Trying to stop on a packed module... *)
-      | `Pack cmt_loadpath, Some path ->
+      | None, Some path ->
         log "from_path" "Saw packed module => erasing loadpath" ;
-        erase_loadpath ~cwd:(Filename.dirname cmt_file) ~new_path:cmt_loadpath
+        erase_loadpath ~cwd:(Filename.dirname cmt_file)
+          ~new_path:cmt_infos.cmt_loadpath
           (fun () -> from_path ~config path)
-      | `Browsable (source_file, _), None ->
+      | Some trie, None ->
         (* We found the module we were looking for, we can stop here. *)
         let pos_fname =
-          match source_file with
+          match cmt_infos.cmt_sourcefile with
           | None   -> fname
           | Some f -> f
         in
@@ -429,7 +432,7 @@ and from_path ~config path : locate_result =
         let loc = { Location. loc_start=pos ; loc_end=pos ; loc_ghost=true } in
         (* TODO: retrieve "ocaml.text" floating attributes? *)
         Found (loc, None)
-      | `Browsable (_, trie), Some path ->
+      | Some trie, Some path ->
         locate ~config path trie
     in
     begin match Utils.find_file ~config ~with_fallback:true file with

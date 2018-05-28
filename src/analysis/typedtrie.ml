@@ -373,14 +373,14 @@ let rec follow ?before trie path =
          ... and perhaps in other situations I am not aware of.  *)
       Found (loc, doc)
     | (loc, _, _, Alias new_prefix) :: _ ->
-      begin match path with
-      | TPident _ ->
+      begin match Namespaced_path.peal_head path with
+      | None ->
         (* FIXME: at this point, we might be deep in the trie, and [path]
            might only make sense for a few steps, but in the upper nodes it
            might need to be prefixed.
            We need to recurse like we do for [Resolves_to] *)
         Alias_of (loc, new_prefix)
-      | _ ->
+      | Some path ->
         let new_path = Namespaced_path.rewrite_path ~new_prefix path in
         begin match follow ~before:loc.Location.loc_start trie new_path with
         | Resolves_to (p, None) -> Resolves_to (p, Some loc)

@@ -91,7 +91,7 @@ let rec equal p1 p2 =
   | _, _ -> false
 
 let rec rewrite_path ~new_prefix = function
-  | TPident _ -> new_prefix
+  | TPident (id, ns) -> TPdot(new_prefix, Ident.name id, ns)
   | TPdot(p, s, ns) -> TPdot (rewrite_path ~new_prefix p, s, ns)
   | TPapply (p1, p2) -> TPapply (rewrite_path ~new_prefix p1, p2)
 

@@ -207,7 +207,7 @@ end
 module File_switching : sig
   val reset : unit -> unit
 
-  val move_to : ?digest:Digest.t -> string -> unit
+  val move_to : digest:Digest.t -> string -> unit
 
   val where_am_i : unit -> string option
 
@@ -215,7 +215,7 @@ module File_switching : sig
 end = struct
   type t = {
     last_file_visited : string;
-    digest : Digest.t option ; (* [None] only for packs. *)
+    digest : Digest.t;
   }
 
   let last_file_visited t = t.last_file_visited
@@ -225,13 +225,13 @@ end = struct
 
   let reset () = state := None
 
-  let move_to ?digest file =
+  let move_to ~digest file =
     logf "File_switching.move_to" "%s" file;
     state := Some { last_file_visited = file ; digest }
 
   let where_am_i () = Option.map !state ~f:last_file_visited
 
-  let source_digest () = Option.bind !state ~f:digest
+  let source_digest () = Option.map !state ~f:digest
 end
 
 
@@ -368,8 +368,11 @@ let trie_of_cmt root =
     with
     | None -> `Pack cached.cmt_infos.cmt_loadpath
     | Some nodes ->
-      File_switching.move_to
-        ?digest:cached.cmt_infos.Cmt_format.cmt_source_digest root;
+      let digest =
+        (* [None] only for packs *)
+        Option.get cached.cmt_infos.Cmt_format.cmt_source_digest
+      in
+      File_switching.move_to ~digest root;
       let trie = Typedtrie.of_browses (List.map ~f:Browse_tree.of_node nodes) in
       cached.Cmt_cache.location_trie <- trie;
       `Browsable (cached.cmt_infos.cmt_sourcefile, trie)

@@ -500,10 +500,12 @@ let dispatch pipeline (type a) : a Query_protocol.t -> a =
         ~env ~local_defs ~pos ml_or_mli path
     with
     | `Found (file, pos) ->
-      Logger.log "track_definition" "Locate"
-        (Option.value ~default:"<local buffer>" file);
+      Logger.logf Locate.log_section "result"
+        "found: %s" (Option.value ~default:"<local buffer>" file);
       `Found (file, pos)
-    | otherwise -> otherwise
+    | otherwise ->
+      Logger.log Locate.log_section "result" "not found";
+      otherwise
     end
 
   | Jump (target, pos) ->

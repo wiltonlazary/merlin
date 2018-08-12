@@ -1,27 +1,12 @@
-Makefile.config
-src/config/my_config.ml
-src/ocaml/typer
-src/sturgeon
-emacs/merlin.elc
+_build
+.merlin
+jbuild-workspace
+*.install
 *.tar.gz
 *.pyc
-*.o
-*.obj
-*.cmo
-*.cmi
-*.cmx
-*.cmt
-*.cma
-*.cm??
+
 ocamlmerlin
-ocamlmerlin.exe
 ocamlmerlin-server
-ocamlmerlin-server.exe
-ocamlmerlin-test
-ocamlmerlin-test.exe
-config.iss
-._d
-._ncdi
 
 # Ignore garbage files from editors
 *.un~

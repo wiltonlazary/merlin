@@ -1,9 +1,10 @@
 (*open Sturgeon_stub*)
 
 let ikfprintf =
-  let open Printf in
-  let open Printf_compat in
-  ikfprintf
+  let open CamlinternalFormatBasics in
+  let open CamlinternalFormat in
+  fun k oc (Format (fmt, _)) ->
+    make_printf (fun oc _ -> k oc) oc End_of_acc fmt
 
 (*let destination = ref null*)
 
@@ -27,8 +28,6 @@ type t = {
   indent: int;
 }
 
-let null = { limit = 0; indent = 0 }
-
 let start ?(limit=max_int) () =
   { limit; indent = 0 }
 
@@ -41,8 +40,10 @@ let null = {
   indent = 0;
 }
 
+(*
 let sub t =
   {limit = t.limit - 1; indent = t.indent + 2}
+*)
 
 let indent n = String.make n ' '
 
@@ -68,7 +69,7 @@ let format_return offset return f x =
   | v ->
     let msg =
       try return () v
-      with exn -> assert false
+      with _ -> assert false
     in
     prerr_endline (indent offset ^ "return: " ^ msg);
     v

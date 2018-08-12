@@ -12,8 +12,6 @@ let arg ?(kind=`Mandatory) name doc action = (kind, (name, doc, action))
 let optional x = arg ~kind:`Optional x
 let many x = arg ~kind:`Many x
 
-open Mconfig
-
 let marg_position f = Marg.param "position"
     (function
       | "start" -> f `Start
@@ -265,8 +263,8 @@ completion only completes an identifier (last part of a module path)."
 The purpose of this command is to implement interactive completion of \
 compiler settings in an IDE."
     ~default:()
-    begin fun buffer () ->
-      `List (List.map Json.string (Mconfig.flags_for_completion ()))
+    begin fun _ () ->
+      `List (List.map ~f:Json.string (Mconfig.flags_for_completion ()))
     end
   ;
 
@@ -500,14 +498,14 @@ or even a tail call?
         (Marg.param "int" (fun cursor (expr,_cursor,pos,index) ->
             match int_of_string cursor with
             | cursor -> (expr,cursor,pos,index)
-            | exception exn ->
+            | exception _ ->
               failwith "cursor should be an integer"
           ));
       optional "-index" "<int> Only print type of <index>'th result"
         (Marg.param "int" (fun index (expr,cursor,pos,_index) ->
             match int_of_string index with
             | index -> (expr,cursor,pos,Some index)
-            | exception exn ->
+            | exception _ ->
               failwith "index should be an integer"
           ));
     ]
@@ -560,11 +558,33 @@ The return value has the shape:
     begin fun pipeline () ->
       let config = Mpipeline.final_config pipeline in
       `Assoc [
-        "dot_merlins", `List (List.rev_map Json.string
+        "dot_merlins", `List (List.rev_map ~f:Json.string
                                 Mconfig.(config.merlin.dotmerlin_loaded));
-        "failures", `List (List.map Json.string
+        "failures", `List (List.map ~f:Json.string
                              Mconfig.(config.merlin.failures));
       ]
+    end
+  ;
+
+  (* Used only for testing *)
+  command "dump"
+    ~spec:[
+      arg "-what" "<parsetree|printast|env|fullenv|browse|tokens|flags\
+                   |warnings|exn|paths> Information to dump ()"
+        (Marg.param "string" (fun what _ -> what));
+    ]
+    ~default:""
+    ~doc:"Not for the casual user, used for debugging merlin"
+    begin fun pipeline what ->
+      run pipeline (Query_protocol.Dump [`String what])
+    end
+  ;
+
+  (* Used only for testing *)
+  command "dump-configuration" ~spec:[] ~default:()
+    ~doc:"Not for the casual user, used for merlin tests"
+    begin fun pipeline () ->
+      Mconfig.dump (Mpipeline.final_config pipeline)
     end
   ;
 
